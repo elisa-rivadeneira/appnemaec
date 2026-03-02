@@ -431,7 +431,7 @@ export const CronogramaUpload: React.FC<CronogramaUploadProps> = ({
       title=""
       size="lg"
     >
-      <div className="p-6">
+      <div className="p-6">190
         {renderStepContent()}
       </div>
 
