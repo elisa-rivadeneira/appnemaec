@@ -275,7 +275,6 @@ async def crear_reporte(
 
 4. **Testing:**
    - Un test por cada use case
-   - Mocks para dependencies
    - Tests de integración para controllers
 
 ---

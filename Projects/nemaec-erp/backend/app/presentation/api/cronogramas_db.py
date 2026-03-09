@@ -514,6 +514,39 @@ async def delete_cronograma(cronograma_id: int, db: AsyncSession = Depends(get_d
 
     print(f"✅ Cronograma eliminado: {cronograma_name} (ID: {cronograma_id})")
 
+@router.get("/{cronograma_id}/partidas", response_model=List[PartidaResponse])
+async def get_cronograma_partidas(cronograma_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Obtener solo las partidas de un cronograma específico
+
+    Args:
+        cronograma_id: ID del cronograma
+
+    Returns:
+        List[PartidaResponse]: Lista de partidas del cronograma
+    """
+    print(f"🔍 DEBUG: GET /cronogramas/{cronograma_id}/partidas")
+
+    # Verificar que el cronograma existe
+    stmt_cronograma = select(CronogramaModel).where(CronogramaModel.id == cronograma_id)
+    result_cronograma = await db.execute(stmt_cronograma)
+    cronograma = result_cronograma.scalar_one_or_none()
+
+    if not cronograma:
+        raise HTTPException(status_code=404, detail="Cronograma no encontrado")
+
+    # Obtener partidas del cronograma
+    stmt = select(PartidaModel).where(
+        PartidaModel.cronograma_id == cronograma_id
+    ).order_by(PartidaModel.codigo_partida)
+
+    result = await db.execute(stmt)
+    partidas = result.scalars().all()
+
+    print(f"📊 Encontradas {len(partidas)} partidas para cronograma {cronograma_id}")
+
+    return [partida_model_to_response(partida) for partida in partidas]
+
 @router.get("/comisaria/{comisaria_id}/detalle", response_model=CronogramaWithPartidas)
 async def get_cronograma_detalle_by_comisaria(comisaria_id: int, db: AsyncSession = Depends(get_db)):
     """
