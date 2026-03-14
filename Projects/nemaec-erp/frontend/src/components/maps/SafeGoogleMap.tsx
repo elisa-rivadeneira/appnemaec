@@ -61,6 +61,39 @@ const GoogleMapContainer = memo(({
         isInitialized.current = true;
         console.log('🗺️ Mapa inicializado correctamente');
 
+        // ✨ HACK: Ocultar overlay gris de Google Maps cuando no hay API key válida
+        setTimeout(() => {
+          const style = document.createElement('style');
+          style.innerHTML = `
+            /* Ocultar capa gris "For development purposes only" */
+            .gm-style div[style*="z-index: 1000000"] {
+              display: none !important;
+            }
+
+            /* Ocultar overlay de desarrollo */
+            .gm-style div[style*="opacity: 0.3"] {
+              display: none !important;
+            }
+
+            /* Ocultar texto de watermark */
+            .gm-style div:has(span:contains("For development purposes only")) {
+              display: none !important;
+            }
+
+            /* Ocultar cualquier overlay con texto de desarrollo */
+            .gm-style [style*="position: absolute"][style*="z-index"] {
+              background: transparent !important;
+            }
+
+            /* Limpiar cualquier overlay que tenga contenido de desarrollo */
+            .gm-style div[style*="color: rgb(255, 255, 255)"] {
+              display: none !important;
+            }
+          `;
+          document.head.appendChild(style);
+          console.log('🧹 CSS aplicado para limpiar overlays de Google Maps');
+        }, 1000);
+
       } catch (error) {
         console.error('Error initializing map:', error);
       }
