@@ -3,7 +3,7 @@
  * Componente para subir avances físicos desde Excel con validación doble
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
@@ -54,6 +54,16 @@ export const SeguimientoUpload: React.FC<SeguimientoUploadProps> = ({
 
   const queryClient = useQueryClient();
   const { data: comisarias = [] } = useComisarias();
+
+  // Actualizar comisaria_id cuando cambie preselectedComisariaId
+  useEffect(() => {
+    if (preselectedComisariaId !== undefined) {
+      setFormData(prev => ({
+        ...prev,
+        comisaria_id: preselectedComisariaId
+      }));
+    }
+  }, [preselectedComisariaId]);
 
   // Mutación para validar partidas antes del avance
   const validateMutation = useMutation({
