@@ -504,7 +504,7 @@ const ComisariaModal: React.FC<ComisariaModalProps> = ({
                   }`}
                 >
                   <MapPinIcon className="w-4 h-4 inline mr-2" />
-                  Información General
+                  <span className="text-gray-700">Información General</span>
                 </button>
                 <button
                   type="button"
@@ -516,7 +516,7 @@ const ComisariaModal: React.FC<ComisariaModalProps> = ({
                   }`}
                 >
                   <ChartBarIcon className="w-4 h-4 inline mr-2" />
-                  Cronograma Valorizado
+                  <span className="text-gray-700">Cronograma Valorizado</span>
                   {cronograma && (
                     <span className="ml-2 bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">
                       {cronograma.total_partidas}
