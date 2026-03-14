@@ -190,7 +190,9 @@ async def importar_avances_a_bd(
         avance_promedio = 0.0
 
     # Conectar a SQLite directamente para la operación
-    db_path = "/home/oem/Projects/nemaec-erp/backend/nemaec_erp.db"
+    # Usar la configuración dinámica en lugar de ruta hardcodeada
+    from app.core.config import settings
+    db_path = settings.database_url.replace("sqlite+aiosqlite://", "").replace("sqlite://", "")
 
     try:
         conn = sqlite3.connect(db_path)
