@@ -20,7 +20,7 @@ import { useComisarias } from '@/hooks/useComisarias';
 import Button from '@/components/ui/Button';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import ComisariaModal from '@/components/comisarias/ComisariaModal';
-import LeafletMap from '@/components/maps/LeafletMap';
+import CSPFriendlyMap from '@/components/maps/CSPFriendlyMap';
 import type { Comisaria } from '@/types/comisarias';
 import type { MapLocation } from '@/data/mockLocations';
 
@@ -296,7 +296,7 @@ const MapaNacional: React.FC = () => {
 
         {/* Mapa */}
         <div className="flex-1 relative">
-          <LeafletMap
+          <CSPFriendlyMap
             locations={filteredMapLocations}
             onLocationClick={handleLocationClick}
             center={{ lat: -12.0464, lng: -77.0428 }}
