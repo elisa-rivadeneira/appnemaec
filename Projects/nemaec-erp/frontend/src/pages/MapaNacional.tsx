@@ -262,29 +262,27 @@ const MapaNacional: React.FC = () => {
                           S/ {comisaria.presupuesto_total.toLocaleString('es-PE', { minimumFractionDigits: 2 })}
                         </div>
                       </div>
-                      <div className="flex flex-col space-y-1">
-                        <Button
-                          variant="ghost"
-                          size="xs"
+                      <div className="flex items-center space-x-1">
+                        <button
                           onClick={(e) => {
                             e.stopPropagation();
                             handleView(comisaria);
                           }}
-                          leftIcon={<EyeIcon className="w-3 h-3" />}
+                          className="p-1.5 rounded text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                          title="Ver detalles"
                         >
-                          Ver
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="xs"
+                          <EyeIcon className="w-3 h-3" />
+                        </button>
+                        <button
                           onClick={(e) => {
                             e.stopPropagation();
                             handleEdit(comisaria);
                           }}
-                          leftIcon={<PencilIcon className="w-3 h-3" />}
+                          className="p-1.5 rounded text-gray-500 hover:text-orange-600 hover:bg-orange-50 transition-colors"
+                          title="Editar"
                         >
-                          Editar
-                        </Button>
+                          <PencilIcon className="w-3 h-3" />
+                        </button>
                       </div>
                     </div>
                   </div>

@@ -300,64 +300,51 @@ const ComisariasList: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Acciones */}
-                  <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-                    <div className="text-xs text-gray-500">
-                      Creado: {new Date(comisaria.created_at).toLocaleDateString('es-PE')}
-                    </div>
+                  {/* Acciones - Solo iconos */}
+                  <div className="flex items-center justify-center pt-4 border-t border-gray-100">
                     <div className="flex items-center space-x-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
+                      <button
                         onClick={() => handleView(comisaria)}
-                        leftIcon={<EyeIcon className="w-4 h-4" />}
+                        className="p-2 rounded-lg text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                        title="Ver detalles"
                       >
-                        Ver
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
+                        <EyeIcon className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => navigate(`/cronograma/comisaria/${comisaria.id}`)}
-                        leftIcon={<ChartBarIcon className="w-4 h-4" />}
-                        className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                        className="p-2 rounded-lg text-gray-500 hover:text-green-600 hover:bg-green-50 transition-colors"
+                        title="Ver avances"
                       >
-                        Avances
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
+                        <ChartBarIcon className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => navigate(`/cronograma/historial/${comisaria.id}`)}
-                        leftIcon={<ClockIcon className="w-4 h-4" />}
-                        className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                        className="p-2 rounded-lg text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                        title="Ver historial"
                       >
-                        Historial
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
+                        <ClockIcon className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => navigate(`/seguimiento/evolucion/${comisaria.id}`)}
-                        leftIcon={<ArrowTrendingUpIcon className="w-4 h-4" />}
-                        className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                        className="p-2 rounded-lg text-gray-500 hover:text-purple-600 hover:bg-purple-50 transition-colors"
+                        title="Ver evolución"
                       >
-                        Evolución
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
+                        <ArrowTrendingUpIcon className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => handleEdit(comisaria)}
-                        leftIcon={<PencilIcon className="w-4 h-4" />}
+                        className="p-2 rounded-lg text-gray-500 hover:text-orange-600 hover:bg-orange-50 transition-colors"
+                        title="Editar"
                       >
-                        Editar
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
+                        <PencilIcon className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => handleDelete(comisaria)}
-                        leftIcon={<TrashIcon className="w-4 h-4" />}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        className="p-2 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        title="Eliminar"
                       >
-                        Eliminar
-                      </Button>
+                        <TrashIcon className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 </div>
