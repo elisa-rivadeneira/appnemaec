@@ -469,7 +469,7 @@ export const CronogramaView: React.FC<CronogramaViewProps> = ({
 
                 {/* Unidad - Solo para partidas finales */}
                 <td className="p-3 text-center">
-                  {partida.nivel_jerarquia >= 3 ? (
+                  {!hasChildren(partida.codigo_partida, enrichedPartidas) ? (
                     <Badge variant="outline" className="text-xs">
                       {partida.unidad || 'UND'}
                     </Badge>
@@ -480,7 +480,7 @@ export const CronogramaView: React.FC<CronogramaViewProps> = ({
 
                 {/* Metrado - Solo para partidas finales */}
                 <td className="p-3 text-right font-mono text-sm text-gray-800">
-                  {partida.nivel_jerarquia >= 3 && partida.metrado > 0 ? (
+                  {!hasChildren(partida.codigo_partida, enrichedPartidas) && partida.metrado > 0 ? (
                     partida.metrado.toLocaleString('es-PE', { minimumFractionDigits: 2 })
                   ) : (
                     <span className="text-gray-400">—</span>
@@ -489,7 +489,7 @@ export const CronogramaView: React.FC<CronogramaViewProps> = ({
 
                 {/* Precio Unitario - Solo para partidas finales */}
                 <td className="p-3 text-right font-mono text-sm text-gray-800">
-                  {partida.nivel_jerarquia >= 3 && partida.precio_unitario > 0 ? (
+                  {!hasChildren(partida.codigo_partida, enrichedPartidas) && partida.precio_unitario > 0 ? (
                     formatCurrency(partida.precio_unitario)
                   ) : (
                     <span className="text-gray-400">—</span>
@@ -565,7 +565,7 @@ export const CronogramaView: React.FC<CronogramaViewProps> = ({
                           <span className="text-gray-400 text-xs">Sin fecha</span>
                         )}
                       </div>
-                      {partida.nivel_jerarquia >= 3 && (
+                      {!hasChildren(partida.codigo_partida, enrichedPartidas) && (
                         <button
                           onClick={() => handleEditFechas(partida, 'fecha_inicio')}
                           className="p-1 rounded text-gray-400 hover:text-blue-600 transition-colors"
@@ -632,7 +632,7 @@ export const CronogramaView: React.FC<CronogramaViewProps> = ({
                           <span className="text-gray-400 text-xs">Sin fecha</span>
                         )}
                       </div>
-                      {partida.nivel_jerarquia >= 3 && (
+                      {!hasChildren(partida.codigo_partida, enrichedPartidas) && (
                         <button
                           onClick={() => handleEditFechas(partida, 'fecha_fin')}
                           className="p-1 rounded text-gray-400 hover:text-blue-600 transition-colors"
