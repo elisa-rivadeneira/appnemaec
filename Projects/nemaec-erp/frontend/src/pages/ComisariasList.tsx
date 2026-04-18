@@ -16,7 +16,9 @@ import {
   ArrowPathIcon,
   ClockIcon,
   ChartBarIcon,
-  ArrowTrendingUpIcon
+  ArrowTrendingUpIcon,
+  PlusCircleIcon,
+  ChartPieIcon
 } from '@heroicons/react/24/outline';
 import {
   BuildingOfficeIcon as BuildingOfficeIconSolid
@@ -330,6 +332,20 @@ const ComisariasList: React.FC = () => {
                         title="Ver evolución"
                       >
                         <ArrowTrendingUpIcon className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => navigate(`/avances/registro/${comisaria.id}`)}
+                        className="p-2 rounded-lg text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+                        title="Registrar avance manual"
+                      >
+                        <PlusCircleIcon className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => navigate(`/avances/graficos/${comisaria.id}`)}
+                        className="p-2 rounded-lg text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                        title="Ver gráficos de avance"
+                      >
+                        <ChartPieIcon className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleEdit(comisaria)}

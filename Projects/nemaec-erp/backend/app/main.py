@@ -231,12 +231,14 @@ from app.presentation.api.comisarias_db import router as comisarias_router  # �
 from app.presentation.api.cronogramas_db import router as cronogramas_router  # 🗄️ Using database version
 from app.presentation.api.cronograma_versiones import router as cronograma_versiones_router
 from app.presentation.api.seguimiento import router as seguimiento_router  # 📊 New: Progress tracking
+from app.api.routes.avances_routes import router as avances_router  # 📊 Manual progress registration
 
 app.include_router(google_maps_router, prefix=settings.API_PREFIX)
 app.include_router(comisarias_router, prefix=settings.API_PREFIX)
 app.include_router(cronogramas_router, prefix=settings.API_PREFIX)
 app.include_router(cronograma_versiones_router, prefix=settings.API_PREFIX)
 app.include_router(seguimiento_router, prefix=settings.API_PREFIX)  # 📊 Seguimiento de avances físicos
+app.include_router(avances_router, prefix=settings.API_PREFIX)  # 📊 Registro manual de avances
 
 # Otros routers pendientes de implementar:
 # from app.presentation.api.auth import router as auth_router

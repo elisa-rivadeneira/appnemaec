@@ -95,6 +95,11 @@ async def init_db() -> None:
             ComisariaModel,
             CronogramaModel
         )
+        from app.infrastructure.database.models_seguimiento import (  # noqa
+            AvanceFisico,
+            DetalleAvancePartida,
+            AlertaAvance
+        )
 
         # Crear todas las tablas
         await conn.run_sync(Base.metadata.create_all)
