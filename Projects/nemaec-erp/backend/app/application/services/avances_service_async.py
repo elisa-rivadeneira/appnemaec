@@ -101,18 +101,10 @@ class AvancesService:
                 PartidaModel.metrado > 0
                 # Solo partidas que no sean títulos (tienen metrado > 0)
             )
-        ).order_by(PartidaModel.codigo_partida, PartidaModel.id.desc())
+        ).order_by(PartidaModel.codigo_partida)
 
         result = await self.db.execute(stmt)
-        partidas_raw = result.scalars().all()
-
-        # Eliminar duplicados por código de partida, manteniendo el más reciente (ID más alto)
-        partidas_unicas = {}
-        for partida in partidas_raw:
-            if partida.codigo_partida not in partidas_unicas:
-                partidas_unicas[partida.codigo_partida] = partida
-
-        partidas = list(partidas_unicas.values())
+        partidas = result.scalars().all()
 
         response_list = []
         for partida in partidas:

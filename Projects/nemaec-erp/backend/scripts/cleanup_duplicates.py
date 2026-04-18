@@ -5,14 +5,22 @@ Mantiene la partida más reciente (ID más alto) cuando hay duplicados por códi
 """
 
 import asyncio
+import sys
+import os
+from pathlib import Path
+
+# Agregar el directorio padre al path para importar app
+backend_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(backend_dir))
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
-from app.core.database import get_async_db
+from app.core.database import get_db
 from app.infrastructure.database.models import PartidaModel
 
 async def cleanup_duplicate_partidas():
     """Eliminar partidas duplicadas, manteniendo la más reciente por código."""
-    async for db in get_async_db():
+    async for db in get_db():
         try:
             # Buscar todas las partidas ordenadas por comisaria_id y codigo_partida
             stmt = select(PartidaModel).order_by(
