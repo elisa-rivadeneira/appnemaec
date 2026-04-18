@@ -5,6 +5,7 @@ Endpoints para el registro y seguimiento de avances físicos
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, and_
 
 from app.core.database import get_db
 from app.application.services.avances_service_async import AvancesService
@@ -110,32 +111,96 @@ async def obtener_datos_graficos(
         from sqlalchemy import select, and_
         from app.infrastructure.database.models_seguimiento import AvanceFisico
 
-        # Calcular rango de fechas
-        fecha_fin = date.today()
-        fecha_inicio = fecha_fin - timedelta(days=days_back)
+        # Calcular rango de fechas histórico
+        fecha_hoy = date.today()
+        fecha_inicio_historico = fecha_hoy - timedelta(days=days_back)
 
-        # Obtener todos los avances físicos en el rango de fechas
+        # Obtener todos los avances físicos en el rango histórico
         stmt = select(AvanceFisico).filter(
             and_(
                 AvanceFisico.comisaria_id == comisaria_id,
-                AvanceFisico.fecha_reporte >= fecha_inicio,
-                AvanceFisico.fecha_reporte <= fecha_fin
+                AvanceFisico.fecha_reporte >= fecha_inicio_historico,
+                AvanceFisico.fecha_reporte <= fecha_hoy
             )
         ).order_by(AvanceFisico.fecha_reporte.asc())
 
         result = await db.execute(stmt)
-        avances = result.scalars().all()
+        avances_historicos = result.scalars().all()
 
-        # Preparar datos para gráficos
+        # Obtener información del proyecto para calcular fechas
+        from app.infrastructure.database.models import PartidaModel
+        from sqlalchemy import func
+
+        # Obtener la fecha de finalización del proyecto (fecha fin más tardía)
+        stmt_fecha_fin = select(func.max(PartidaModel.fecha_fin)).filter(
+            and_(
+                PartidaModel.comisaria_id == comisaria_id,
+                PartidaModel.fecha_fin.isnot(None)
+            )
+        )
+        result_fecha_fin = await db.execute(stmt_fecha_fin)
+        fecha_fin_proyecto = result_fecha_fin.scalar()
+
+        if fecha_fin_proyecto:
+            if hasattr(fecha_fin_proyecto, 'date'):
+                fecha_fin_proyecto = fecha_fin_proyecto.date()
+        else:
+            # Si no hay fechas, proyectar 6 meses desde hoy
+            fecha_fin_proyecto = fecha_hoy + timedelta(days=180)
+
+        # Preparar datos históricos reales
         datos_grafico = []
-        for avance in avances:
+        for avance in avances_historicos:
             datos_grafico.append({
                 "fecha": avance.fecha_reporte.isoformat(),
                 "avance_programado": float(avance.avance_programado_acum * 100) if avance.avance_programado_acum else 0,
                 "avance_ejecutado": float(avance.avance_ejecutado_acum * 100),
                 "diferencia": float(avance.avance_ejecutado_acum * 100) - (float(avance.avance_programado_acum * 100) if avance.avance_programado_acum else 0),
-                "dias_transcurridos": avance.dias_transcurridos
+                "dias_transcurridos": avance.dias_transcurridos,
+                "es_proyeccion": False
             })
+
+        # Generar línea programada completa desde inicio del proyecto hasta fin
+        service = AvancesService(db)
+        fecha_inicio_proyecto = await service._obtener_fecha_inicio_proyecto(comisaria_id)
+
+        if fecha_inicio_proyecto and fecha_fin_proyecto:
+            # Calcular duración total del proyecto en días
+            dias_totales_proyecto = (fecha_fin_proyecto - fecha_inicio_proyecto).days
+
+            # Generar puntos de la línea programada completa (cada semana desde inicio hasta fin)
+            fecha_actual = fecha_inicio_proyecto
+            while fecha_actual <= fecha_fin_proyecto:
+                dias_transcurridos = (fecha_actual - fecha_inicio_proyecto).days
+
+                # Calcular avance programado basado en la línea de tiempo
+                if dias_totales_proyecto > 0:
+                    avance_programado_proyectado = min(100.0, (dias_transcurridos / dias_totales_proyecto) * 100)
+                else:
+                    avance_programado_proyectado = 100.0
+
+                # Determinar si es proyección (fecha futura) o línea base (fecha pasada/presente sin datos reales)
+                es_proyeccion = fecha_actual > fecha_hoy
+
+                # Verificar si ya tenemos datos reales para esta fecha
+                tiene_datos_reales = any(
+                    item["fecha"] == fecha_actual.isoformat()
+                    for item in datos_grafico
+                )
+
+                # Solo agregar si no tenemos datos reales para esta fecha
+                if not tiene_datos_reales:
+                    datos_grafico.append({
+                        "fecha": fecha_actual.isoformat(),
+                        "avance_programado": avance_programado_proyectado,
+                        "avance_ejecutado": None,  # Solo datos reales tienen avance ejecutado
+                        "diferencia": None,
+                        "dias_transcurridos": dias_transcurridos,
+                        "es_proyeccion": es_proyeccion
+                    })
+
+                # Avanzar una semana
+                fecha_actual += timedelta(days=7)
 
         # Obtener información actual del proyecto
         service = AvancesService(db)
@@ -175,19 +240,31 @@ async def obtener_datos_graficos(
                     "diferencia": diferencia
                 })
 
+        # Ordenar todos los datos por fecha
+        datos_grafico.sort(key=lambda x: x["fecha"])
+
+        # Separar datos históricos y proyecciones para el frontend
+        datos_historicos = [d for d in datos_grafico if not d.get("es_proyeccion", False)]
+        datos_proyeccion = [d for d in datos_grafico if d.get("es_proyeccion", False)]
+
         return {
             "comisaria_id": comisaria_id,
             "periodo": {
-                "fecha_inicio": fecha_inicio.isoformat(),
-                "fecha_fin": fecha_fin.isoformat(),
-                "days_back": days_back
+                "fecha_inicio": fecha_inicio_proyecto.isoformat() if fecha_inicio_proyecto else fecha_inicio_historico.isoformat(),
+                "fecha_fin": fecha_fin_proyecto.isoformat() if fecha_fin_proyecto else fecha_hoy.isoformat(),
+                "days_back": days_back,
+                "periodo_completo": True  # Indica que se muestra el período completo del proyecto
             },
             "proyecto": {
                 "semana_actual": info_semana.semana_actual,
                 "dias_transcurridos": info_semana.dias_transcurridos,
-                "fecha_inicio_proyecto": info_semana.fecha_inicio_proyecto
+                "fecha_inicio_proyecto": info_semana.fecha_inicio_proyecto,
+                "fecha_fin_proyecto": fecha_fin_proyecto.isoformat() if fecha_fin_proyecto else None,
+                "duracion_total_dias": (fecha_fin_proyecto - (date.fromisoformat(info_semana.fecha_inicio_proyecto) if isinstance(info_semana.fecha_inicio_proyecto, str) else info_semana.fecha_inicio_proyecto)).days if fecha_fin_proyecto and info_semana.fecha_inicio_proyecto else None
             },
-            "serie_temporal": datos_grafico,
+            "serie_temporal": datos_historicos,
+            "serie_proyeccion": datos_proyeccion,
+            "serie_completa": datos_grafico,  # Todos los datos para gráficos que quieran mostrar todo junto
             "resumen_partidas": {
                 "criticas": partidas_criticas,
                 "en_tiempo": partidas_en_tiempo,
@@ -195,9 +272,9 @@ async def obtener_datos_graficos(
                 "total_partidas": len(partidas)
             },
             "avance_actual": {
-                "programado": datos_grafico[-1]["avance_programado"] if datos_grafico else 0,
-                "ejecutado": datos_grafico[-1]["avance_ejecutado"] if datos_grafico else 0,
-                "diferencia": datos_grafico[-1]["diferencia"] if datos_grafico else 0
+                "programado": datos_historicos[-1]["avance_programado"] if datos_historicos else 0,
+                "ejecutado": datos_historicos[-1]["avance_ejecutado"] if datos_historicos and datos_historicos[-1]["avance_ejecutado"] is not None else 0,
+                "diferencia": datos_historicos[-1]["diferencia"] if datos_historicos and datos_historicos[-1]["diferencia"] is not None else 0
             }
         }
 
@@ -269,4 +346,285 @@ async def obtener_historial_avances(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al obtener historial: {str(e)}"
+        )
+
+@router.put("/detalle/{detalle_id}")
+async def actualizar_avance_detalle(
+    detalle_id: int,
+    request: dict,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    ✏️ Actualizar avance de un detalle específico en el historial.
+
+    Permite modificar el porcentaje de avance y observaciones de una partida
+    en un registro histórico específico. Al actualizar, recalcula automáticamente
+    el avance total acumulado del registro.
+    """
+    try:
+        from app.infrastructure.database.models_seguimiento import DetalleAvancePartida, AvanceFisico
+        from sqlalchemy import select, update
+        from decimal import Decimal
+
+        # Validar datos de entrada
+        porcentaje_avance = request.get('porcentaje_avance')
+        observaciones_partida = request.get('observaciones_partida')
+
+        if porcentaje_avance is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="porcentaje_avance es requerido"
+            )
+
+        if not (0 <= porcentaje_avance <= 100):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="porcentaje_avance debe estar entre 0 y 100"
+            )
+
+        # Obtener el detalle existente
+        stmt = select(DetalleAvancePartida).filter(
+            DetalleAvancePartida.id == detalle_id
+        )
+        result = await db.execute(stmt)
+        detalle = result.scalar_one_or_none()
+
+        if not detalle:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Detalle de avance no encontrado"
+            )
+
+        # Actualizar el detalle
+        stmt_update = update(DetalleAvancePartida).where(
+            DetalleAvancePartida.id == detalle_id
+        ).values(
+            porcentaje_avance=Decimal(str(porcentaje_avance / 100)),  # Convertir a decimal (0-1)
+            observaciones_partida=observaciones_partida
+        )
+
+        await db.execute(stmt_update)
+
+        # Recalcular el avance total acumulado del registro padre
+        avance_fisico_id = detalle.avance_fisico_id
+
+        # Obtener el avance físico para obtener la comisaria_id
+        stmt_avance = select(AvanceFisico).filter(AvanceFisico.id == avance_fisico_id)
+        result_avance = await db.execute(stmt_avance)
+        avance_fisico = result_avance.scalar_one()
+
+        # Obtener todos los detalles de este avance físico
+        stmt_detalles = select(DetalleAvancePartida).filter(
+            DetalleAvancePartida.avance_fisico_id == avance_fisico_id
+        )
+        result_detalles = await db.execute(stmt_detalles)
+        todos_los_detalles = result_detalles.scalars().all()
+
+        # Obtener información de las partidas para calcular montos
+        from app.infrastructure.database.models import PartidaModel
+        codigos_partidas = [d.codigo_partida for d in todos_los_detalles]
+
+        stmt_partidas = select(PartidaModel).filter(
+            and_(
+                PartidaModel.codigo_partida.in_(codigos_partidas),
+                PartidaModel.comisaria_id == avance_fisico.comisaria_id
+            )
+        )
+        result_partidas = await db.execute(stmt_partidas)
+        partidas_info = {p.codigo_partida: p for p in result_partidas.scalars().all()}
+
+        # Recalcular el avance total acumulado
+        total_monto_proyecto = Decimal('0')
+        monto_ejecutado_total = Decimal('0')
+
+        for detalle_item in todos_los_detalles:
+            partida_info = partidas_info.get(detalle_item.codigo_partida)
+            if partida_info and partida_info.precio_total:
+                monto_partida = Decimal(str(partida_info.precio_total))
+                total_monto_proyecto += monto_partida
+
+                # Calcular monto ejecutado basado en el porcentaje
+                porcentaje_decimal = detalle_item.porcentaje_avance  # Ya está en formato 0-1
+                monto_ejecutado = monto_partida * porcentaje_decimal
+                monto_ejecutado_total += monto_ejecutado
+
+        # Calcular porcentaje total
+        if total_monto_proyecto > 0:
+            avance_ejecutado_acum = monto_ejecutado_total / total_monto_proyecto
+        else:
+            avance_ejecutado_acum = Decimal('0')
+
+        # Actualizar el avance físico padre
+        stmt_update_avance = update(AvanceFisico).where(
+            AvanceFisico.id == avance_fisico_id
+        ).values(
+            avance_ejecutado_acum=avance_ejecutado_acum
+        )
+
+        await db.execute(stmt_update_avance)
+        await db.commit()
+
+        return {
+            "success": True,
+            "mensaje": "Avance actualizado exitosamente",
+            "detalle_id": detalle_id,
+            "nuevo_porcentaje": porcentaje_avance,
+            "nuevo_avance_total": float(avance_ejecutado_acum * 100),
+            "observaciones": observaciones_partida
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al actualizar avance: {str(e)}"
+        )
+
+@router.post("/detalle")
+async def crear_detalle_avance(
+    request: dict,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    ➕ Crear un nuevo detalle de avance en un registro histórico existente.
+
+    Permite agregar una nueva partida a un registro de avance físico existente.
+    Al crear el detalle, recalcula automáticamente el avance total acumulado del registro.
+    """
+    try:
+        from app.infrastructure.database.models_seguimiento import DetalleAvancePartida, AvanceFisico
+        from sqlalchemy import select, update
+        from decimal import Decimal
+
+        # Validar datos de entrada
+        avance_fisico_id = request.get('avance_fisico_id')
+        codigo_partida = request.get('codigo_partida')
+        porcentaje_avance = request.get('porcentaje_avance')
+        observaciones_partida = request.get('observaciones_partida')
+
+        if not all([avance_fisico_id, codigo_partida, porcentaje_avance is not None]):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="avance_fisico_id, codigo_partida y porcentaje_avance son requeridos"
+            )
+
+        if not (0 <= porcentaje_avance <= 100):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="porcentaje_avance debe estar entre 0 y 100"
+            )
+
+        # Verificar que el avance físico existe
+        stmt_avance = select(AvanceFisico).filter(AvanceFisico.id == avance_fisico_id)
+        result_avance = await db.execute(stmt_avance)
+        avance_fisico = result_avance.scalar_one_or_none()
+
+        if not avance_fisico:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Registro de avance físico no encontrado"
+            )
+
+        # Verificar que la partida no existe ya en este registro
+        stmt_existe = select(DetalleAvancePartida).filter(
+            and_(
+                DetalleAvancePartida.avance_fisico_id == avance_fisico_id,
+                DetalleAvancePartida.codigo_partida == codigo_partida
+            )
+        )
+        result_existe = await db.execute(stmt_existe)
+        detalle_existente = result_existe.scalar_one_or_none()
+
+        if detalle_existente:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"La partida {codigo_partida} ya existe en este registro"
+            )
+
+        # Crear el nuevo detalle
+        nuevo_detalle = DetalleAvancePartida(
+            avance_fisico_id=avance_fisico_id,
+            codigo_partida=codigo_partida,
+            porcentaje_avance=Decimal(str(porcentaje_avance / 100)),  # Convertir a decimal (0-1)
+            monto_ejecutado=None,  # Se calculará después
+            observaciones_partida=observaciones_partida
+        )
+
+        db.add(nuevo_detalle)
+        await db.flush()  # Para obtener el ID
+
+        # Recalcular el avance total acumulado del registro
+        # Obtener todos los detalles de este avance físico (incluyendo el nuevo)
+        stmt_detalles = select(DetalleAvancePartida).filter(
+            DetalleAvancePartida.avance_fisico_id == avance_fisico_id
+        )
+        result_detalles = await db.execute(stmt_detalles)
+        todos_los_detalles = result_detalles.scalars().all()
+
+        # Obtener información de las partidas para calcular montos
+        from app.infrastructure.database.models import PartidaModel
+        codigos_partidas = [d.codigo_partida for d in todos_los_detalles]
+
+        stmt_partidas = select(PartidaModel).filter(
+            and_(
+                PartidaModel.codigo_partida.in_(codigos_partidas),
+                PartidaModel.comisaria_id == avance_fisico.comisaria_id
+            )
+        )
+        result_partidas = await db.execute(stmt_partidas)
+        partidas_info = {p.codigo_partida: p for p in result_partidas.scalars().all()}
+
+        # Recalcular el avance total acumulado
+        total_monto_proyecto = Decimal('0')
+        monto_ejecutado_total = Decimal('0')
+
+        for detalle_item in todos_los_detalles:
+            partida_info = partidas_info.get(detalle_item.codigo_partida)
+            if partida_info and partida_info.precio_total:
+                monto_partida = Decimal(str(partida_info.precio_total))
+                total_monto_proyecto += monto_partida
+
+                # Calcular monto ejecutado basado en el porcentaje
+                porcentaje_decimal = detalle_item.porcentaje_avance  # Ya está en formato 0-1
+                monto_ejecutado = monto_partida * porcentaje_decimal
+                monto_ejecutado_total += monto_ejecutado
+
+                # Actualizar el monto ejecutado del detalle
+                detalle_item.monto_ejecutado = float(monto_ejecutado)
+
+        # Calcular porcentaje total
+        if total_monto_proyecto > 0:
+            avance_ejecutado_acum = monto_ejecutado_total / total_monto_proyecto
+        else:
+            avance_ejecutado_acum = Decimal('0')
+
+        # Actualizar el avance físico padre
+        stmt_update_avance = update(AvanceFisico).where(
+            AvanceFisico.id == avance_fisico_id
+        ).values(
+            avance_ejecutado_acum=avance_ejecutado_acum
+        )
+
+        await db.execute(stmt_update_avance)
+        await db.commit()
+
+        return {
+            "success": True,
+            "mensaje": "Detalle de avance creado exitosamente",
+            "detalle_id": nuevo_detalle.id,
+            "codigo_partida": codigo_partida,
+            "porcentaje_avance": porcentaje_avance,
+            "nuevo_avance_total": float(avance_ejecutado_acum * 100),
+            "observaciones": observaciones_partida
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al crear detalle de avance: {str(e)}"
         )
