@@ -41,6 +41,32 @@ export default function CronogramaDetallePage() {
     error
   } = useCronogramaByComisaria(numericComisariaId);
 
+  // Auto-expandir partidas de nivel 1 y 2 cuando se carga el cronograma
+  React.useEffect(() => {
+    console.log('📊 DEBUG Cronograma useEffect:', {
+      hasPartidas: !!cronograma?.partidas,
+      partidasLength: cronograma?.partidas?.length || 0,
+      expandedItemsSize: expandedItems.size,
+      firstPartida: cronograma?.partidas?.[0],
+      allNivelesJerarquia: cronograma?.partidas?.map(p => p.nivel_jerarquia) || []
+    });
+
+    if (cronograma?.partidas && cronograma.partidas.length > 0 && expandedItems.size === 0) {
+      const autoExpandItems = new Set<string>();
+
+      cronograma.partidas.forEach(partida => {
+        // Expandir partidas de nivel 1 y 2 automáticamente
+        if (partida.nivel_jerarquia <= 2) {
+          autoExpandItems.add(partida.codigo_partida);
+        }
+      });
+
+      console.log('🔓 Auto-expandiendo partidas:', autoExpandItems);
+      console.log('📊 Total partidas a expandir:', autoExpandItems.size);
+      setExpandedItems(autoExpandItems);
+    }
+  }, [cronograma]);
+
   // Obtener datos de seguimiento
   const {
     data: avanceProgramado,
@@ -285,6 +311,17 @@ export default function CronogramaDetallePage() {
     const isVisible = searchTerm ? true : isPartidaVisible(partida);
 
     return matchesSearch && isVisible;
+  });
+
+  // Debug del filtrado
+  console.log('🔍 DEBUG Filtrado:', {
+    enrichedPartidasCount: enrichedPartidas.length,
+    filteredPartidasCount: filteredPartidas.length,
+    searchTerm,
+    expandedItemsSize: expandedItems.size,
+    expandedItems: Array.from(expandedItems),
+    sampleEnrichedPartida: enrichedPartidas[0],
+    sampleFilteredPartida: filteredPartidas[0]
   });
 
   // Paginación

@@ -6,6 +6,22 @@ import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
+// CSS personalizado para tooltips
+const customTooltipStyles = `
+  .custom-tooltip {
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  .custom-tooltip .leaflet-tooltip-content {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .leaflet-tooltip-top:before {
+    border-top-color: rgba(31, 41, 55, 0.95) !important;
+  }
+`;
+
 interface MapLocation {
   id: string;
   name: string;
@@ -16,6 +32,8 @@ interface MapLocation {
   address: string;
   tipo?: string;
   estado?: string;
+  foto_url?: string;
+  comisaria?: any; // Para acceder a datos completos de la comisaría
 }
 
 interface LeafletMapProps {
@@ -43,6 +61,14 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
   // Inicializar el mapa
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
+
+    // Inyectar estilos CSS personalizados
+    if (!document.getElementById('custom-leaflet-styles')) {
+      const styleElement = document.createElement('style');
+      styleElement.id = 'custom-leaflet-styles';
+      styleElement.textContent = customTooltipStyles;
+      document.head.appendChild(styleElement);
+    }
 
     try {
       // Crear el mapa
@@ -132,47 +158,126 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         location.coordinates.lng
       ], { icon: customIcon });
 
-      // Popup con información de la comisaría
+      // Popup con información de la comisaría incluyendo imagen
+      const foto_url = location.comisaria?.foto_url || location.foto_url;
       const popupContent = `
-        <div style="min-width: 200px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
-          <h3 style="margin: 0 0 8px 0; color: #1f2937; font-size: 14px; font-weight: 600;">
-            ${location.name}
-          </h3>
-          <p style="margin: 0 0 8px 0; color: #6b7280; font-size: 12px;">
-            📍 ${location.address}
-          </p>
-          ${location.tipo ? `
-            <div style="margin: 4px 0;">
-              <span style="
-                background: #dbeafe;
-                color: #1e40af;
-                padding: 2px 8px;
-                border-radius: 12px;
-                font-size: 11px;
-                font-weight: 500;
-              ">
-                ${location.tipo}
-              </span>
+        <div style="min-width: 220px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+          ${foto_url ? `
+            <div style="margin: -8px -8px 12px -8px;">
+              <img
+                src="${foto_url}"
+                alt="${location.name}"
+                style="
+                  width: 100%;
+                  height: 120px;
+                  object-fit: cover;
+                  border-radius: 6px 6px 0 0;
+                  display: block;
+                "
+                onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
+              />
+              <div style="
+                display: none;
+                height: 120px;
+                background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+                color: white;
+                font-size: 24px;
+                align-items: center;
+                justify-content: center;
+                border-radius: 6px 6px 0 0;
+              ">🏛️</div>
             </div>
           ` : ''}
-          ${location.estado ? `
-            <div style="margin: 4px 0;">
-              <span style="
-                background: ${location.estado === 'completada' ? '#dcfce7' : location.estado === 'en_proceso' ? '#fef3c7' : '#fee2e2'};
-                color: ${location.estado === 'completada' ? '#166534' : location.estado === 'en_proceso' ? '#92400e' : '#991b1b'};
-                padding: 2px 8px;
-                border-radius: 12px;
-                font-size: 11px;
-                font-weight: 500;
-              ">
-                ${location.estado.replace('_', ' ').toUpperCase()}
-              </span>
+          <div style="padding: ${foto_url ? '0 8px 8px 8px' : '8px'};">
+            <h3 style="margin: 0 0 8px 0; color: #1f2937; font-size: 16px; font-weight: 700;">
+              🏛️ ${location.name}
+            </h3>
+            <p style="margin: 0 0 12px 0; color: #6b7280; font-size: 13px; line-height: 1.4;">
+              📍 ${location.address || location.comisaria?.ubicacion?.distrito || 'Ubicación no disponible'}
+            </p>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;">
+              ${location.tipo ? `
+                <span style="
+                  background: #dbeafe;
+                  color: #1e40af;
+                  padding: 3px 10px;
+                  border-radius: 14px;
+                  font-size: 11px;
+                  font-weight: 600;
+                  text-transform: capitalize;
+                ">
+                  ${location.tipo}
+                </span>
+              ` : ''}
+              ${location.estado ? `
+                <span style="
+                  background: ${location.estado === 'completada' ? '#dcfce7' : location.estado === 'en_proceso' ? '#dbeafe' : '#fef3c7'};
+                  color: ${location.estado === 'completada' ? '#166534' : location.estado === 'en_proceso' ? '#1e40af' : '#92400e'};
+                  padding: 3px 10px;
+                  border-radius: 14px;
+                  font-size: 11px;
+                  font-weight: 600;
+                ">
+                  ${location.estado.replace('_', ' ').toUpperCase()}
+                </span>
+              ` : ''}
             </div>
-          ` : ''}
+          </div>
         </div>
       `;
 
       marker.bindPopup(popupContent);
+
+      // Tooltip para hover (nombre e imagen pequeña)
+      const tooltipContent = `
+        <div style="
+          min-width: 180px;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          text-align: center;
+          background: rgba(31, 41, 55, 0.95);
+          color: white;
+          border-radius: 8px;
+          padding: 8px;
+          backdrop-filter: blur(8px);
+        ">
+          ${foto_url ? `
+            <img
+              src="${foto_url}"
+              alt="${location.name}"
+              style="
+                width: 60px;
+                height: 40px;
+                object-fit: cover;
+                border-radius: 4px;
+                margin: 0 auto 6px auto;
+                display: block;
+                border: 2px solid rgba(255,255,255,0.2);
+              "
+              onerror="this.style.display='none';"
+            />
+          ` : ''}
+          <div style="
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 2px;
+          ">
+            🏛️ ${location.name}
+          </div>
+          <div style="
+            font-size: 11px;
+            color: rgba(255,255,255,0.8);
+          ">
+            ${location.comisaria?.ubicacion?.distrito || 'Lima'}
+          </div>
+        </div>
+      `;
+
+      marker.bindTooltip(tooltipContent, {
+        permanent: false,
+        direction: 'top',
+        offset: [0, -20],
+        className: 'custom-tooltip'
+      });
 
       // Event listener para click
       if (onLocationClick) {

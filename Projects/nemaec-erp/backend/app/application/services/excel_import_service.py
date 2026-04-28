@@ -92,12 +92,26 @@ class ExcelImportService:
             df = pd.read_excel(excel_path)
             resultado["total_filas_excel"] = len(df)
 
-            # 4. Validar estructura del Excel
-            columnas_requeridas = ["NID", "COMISARIA", "COD", "PARTIDA", "UNI", "METRADO", "PU", "PARCIAL"]
+            # 4. Detectar formato automáticamente y validar estructura
+            formato_alternativo = self._detectar_formato_excel(df)
+            resultado["formato_detectado"] = "alternativo" if formato_alternativo else "original"
+
+            if formato_alternativo:
+                columnas_requeridas = ["comisaria", "codigo", "partida", "und", "metrado", "pu", "parcial"]
+                # inicio y fec_termino son opcionales en el formato alternativo
+            else:
+                columnas_requeridas = ["NID", "COMISARIA", "COD", "PARTIDA", "UNI", "METRADO", "PU", "PARCIAL"]
+
             self._validar_columnas_excel(df, columnas_requeridas)
 
             # 5. Filtrar por comisaría
-            df_comisaria = df[df["COMISARIA"] == comisaria.nombre].copy()
+            if formato_alternativo:
+                # En el formato alternativo, filtrar por columna "comisaria"
+                df_comisaria = df[df["comisaria"] == comisaria.nombre].copy()
+            else:
+                # En el formato original, filtrar por columna "COMISARIA"
+                df_comisaria = df[df["COMISARIA"] == comisaria.nombre].copy()
+
             if df_comisaria.empty:
                 raise ExcelValidationError(f"No se encontraron partidas para comisaría: {comisaria.nombre}")
 
@@ -107,13 +121,15 @@ class ExcelImportService:
 
             for index, row in df_comisaria.iterrows():
                 try:
-                    partida = await self._crear_partida_desde_excel_row(row, comisaria.id)
+                    partida = await self._crear_partida_desde_excel_row(row, comisaria.id, formato_alternativo)
                     partidas_creadas.append(partida)
                 except Exception as e:
+                    nid_key = "codigo" if formato_alternativo else "NID"
+                    cod_key = "codigo" if formato_alternativo else "COD"
                     errores_fila.append({
                         "fila": index + 1,
-                        "nid": row.get("NID"),
-                        "codigo": row.get("COD"),
+                        "nid": row.get(nid_key),
+                        "codigo": row.get(cod_key),
                         "error": str(e)
                     })
 
@@ -350,13 +366,47 @@ class ExcelImportService:
                 f"Columnas faltantes en Excel: {', '.join(columnas_faltantes)}"
             )
 
-    async def _crear_partida_desde_excel_row(self, row: pd.Series, comisaria_id: int) -> Partida:
+    async def _crear_partida_desde_excel_row(self, row: pd.Series, comisaria_id: int, formato_alternativo: bool = False) -> Partida:
         """Crear entidad Partida desde fila de Excel"""
         from decimal import Decimal
+        from datetime import datetime
 
-        # Determinar tipo de partida según el código
-        codigo = str(row["COD"]).strip()
-        if pd.isna(row["METRADO"]) or row["METRADO"] == 0:
+        # Mapear nombres de columnas según el formato
+        if formato_alternativo:
+            col_codigo = "codigo"
+            col_descripcion = "partida"
+            col_unidad = "und"
+            col_metrado = "metrado"
+            col_precio_unitario = "pu"
+            col_parcial = "parcial"
+            # Para el formato alternativo, no hay NID, usar índice + 1000
+            nid = row.name + 1000  # usar índice de fila como base para NID
+        else:
+            col_codigo = "COD"
+            col_descripcion = "PARTIDA"
+            col_unidad = "UNI"
+            col_metrado = "METRADO"
+            col_precio_unitario = "PU"
+            col_parcial = "PARCIAL"
+            nid = int(row["NID"])
+
+        # Validar y limpiar datos antes de procesamiento
+        codigo_raw = row[col_codigo]
+        descripcion_raw = row[col_descripcion]
+        metrado_val = row[col_metrado]
+
+        # Validación de datos requeridos
+        if pd.isna(codigo_raw) or str(codigo_raw).strip() == '' or str(codigo_raw).strip().lower() == 'nan':
+            raise ValueError(f"Código de partida es obligatorio en fila {row.name + 1}")
+
+        if pd.isna(descripcion_raw) or str(descripcion_raw).strip() == '' or str(descripcion_raw).strip().lower() == 'nan':
+            raise ValueError(f"Descripción es obligatoria en fila {row.name + 1}")
+
+        # Limpiar y procesar datos
+        codigo = str(codigo_raw).strip()
+        descripcion = str(descripcion_raw).strip()
+
+        if pd.isna(metrado_val) or metrado_val == 0:
             if len(codigo.split('.')) == 1:
                 tipo = TipoPartida.TITULO
             else:
@@ -364,19 +414,41 @@ class ExcelImportService:
         else:
             tipo = TipoPartida.PARTIDA
 
-        # Crear partida
+        # Crear partida base
         partida = Partida(
             id=None,
-            nid=int(row["NID"]),
+            nid=nid,
             codigo=codigo,
-            descripcion=str(row["PARTIDA"]).strip(),
+            descripcion=descripcion,
             tipo=tipo,
-            unidad=str(row["UNI"]).strip() if pd.notna(row["UNI"]) else None,
-            metrado=Decimal(str(row["METRADO"])) if pd.notna(row["METRADO"]) else Decimal('0'),
-            precio_unitario=Decimal(str(row["PU"])) if pd.notna(row["PU"]) else Decimal('0'),
-            parcial=Decimal(str(row["PARCIAL"])) if pd.notna(row["PARCIAL"]) else Decimal('0'),
+            unidad=str(row[col_unidad]).strip() if pd.notna(row[col_unidad]) else None,
+            metrado=Decimal(str(metrado_val)) if pd.notna(metrado_val) else Decimal('0'),
+            precio_unitario=Decimal(str(row[col_precio_unitario])) if pd.notna(row[col_precio_unitario]) else Decimal('0'),
+            parcial=Decimal(str(row[col_parcial])) if pd.notna(row[col_parcial]) else Decimal('0'),
             comisaria_id=comisaria_id
         )
+
+        # Si es formato alternativo y tiene fechas, agregarlas
+        if formato_alternativo:
+            if "inicio" in row and pd.notna(row["inicio"]):
+                # Convertir fecha de inicio si está presente
+                try:
+                    if isinstance(row["inicio"], str):
+                        partida.fecha_inicio = datetime.strptime(row["inicio"], "%Y-%m-%d")
+                    else:
+                        partida.fecha_inicio = row["inicio"]
+                except:
+                    pass  # Si falla la conversión, continuar sin fecha
+
+            if "fec_termino" in row and pd.notna(row["fec_termino"]):
+                # Convertir fecha de término si está presente
+                try:
+                    if isinstance(row["fec_termino"], str):
+                        partida.fecha_termino = datetime.strptime(row["fec_termino"], "%Y-%m-%d")
+                    else:
+                        partida.fecha_termino = row["fec_termino"]
+                except:
+                    pass  # Si falla la conversión, continuar sin fecha
 
         return partida
 
@@ -419,3 +491,23 @@ class ExcelImportService:
             alertas.append(alerta)
 
         return sorted(alertas, key=lambda x: abs(x["diferencia"]), reverse=True)
+
+    def _detectar_formato_excel(self, df: pd.DataFrame) -> bool:
+        """
+        Detectar automáticamente el formato del Excel.
+
+        Returns:
+            bool: True si es formato alternativo (comisaria, codigo, partida, etc.),
+                  False si es formato original (NID, COMISARIA, COD, etc.)
+        """
+        # Formato alternativo tiene columnas: comisaria, codigo, partida, und, etc.
+        columnas_formato_alternativo = ["comisaria", "codigo", "partida", "und"]
+        # Formato original tiene columnas: NID, COMISARIA, COD, PARTIDA, UNI, etc.
+        columnas_formato_original = ["NID", "COMISARIA", "COD", "PARTIDA", "UNI"]
+
+        # Contar cuántas columnas coinciden con cada formato
+        coincidencias_alternativo = sum(1 for col in columnas_formato_alternativo if col in df.columns)
+        coincidencias_original = sum(1 for col in columnas_formato_original if col in df.columns)
+
+        # Si hay más coincidencias con formato alternativo, usar ese formato
+        return coincidencias_alternativo > coincidencias_original

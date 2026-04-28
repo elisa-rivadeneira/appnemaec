@@ -77,6 +77,107 @@ def generar_hash_descripcion(descripcion: str) -> str:
     import hashlib
     return hashlib.md5(descripcion.strip().upper().encode()).hexdigest()[:10]
 
+def procesar_cronograma_valorizado(df: pd.DataFrame) -> List[dict]:
+    """
+    Procesar cronograma valorizado para generar partidas base.
+    Para validación, asumimos 0% de avance en todas las partidas.
+    """
+    partidas_avances = []
+
+    print("📊 Procesando cronograma valorizado...")
+
+    for idx, row in df.iterrows():
+        try:
+            # Validar datos requeridos
+            if pd.isna(row['codigo']) or str(row['codigo']).strip() == '':
+                continue
+
+            if pd.isna(row['partida']) or str(row['partida']).strip() == '':
+                continue
+
+            codigo = str(row['codigo']).strip()
+            descripcion = str(row['partida']).strip()
+
+            # Solo incluir códigos que parezcan partidas (tienen números y puntos)
+            if any(c.isdigit() for c in codigo):
+                # Normalizar código
+                codigo_normalizado = normalizar_codigo_matematico(codigo)
+
+                partida_data = {
+                    'codigo_partida': codigo_normalizado,
+                    'descripcion': descripcion,
+                    'porcentaje_avance': 0.0  # Para validación, asumimos 0% inicial
+                }
+                partidas_avances.append(partida_data)
+
+                if idx < 10:  # Solo mostrar los primeros 10 para no saturar logs
+                    print(f"✅ Partida: {codigo} → {codigo_normalizado}: {descripcion[:50]}...")
+
+        except Exception as e:
+            print(f"⚠️ Error procesando fila {idx + 1}: {e}")
+            continue
+
+    print(f"📈 Total partidas extraídas del cronograma: {len(partidas_avances)}")
+    return partidas_avances
+
+def procesar_avances_fisicos(df: pd.DataFrame, columnas: List[str]) -> List[dict]:
+    """
+    Procesar archivo de avances físicos (lógica original).
+    """
+    partidas_avances = []
+
+    # Buscar columnas relevantes (flexibilidad en nombres)
+    col_item = None
+    col_descripcion = None
+    col_avance = None
+
+    for col in columnas:
+        col_lower = str(col).lower()
+        if 'item' in col_lower or 'codigo' in col_lower:
+            col_item = col
+        elif 'descripcion' in col_lower:
+            col_descripcion = col
+        elif 'avance' in col_lower and 'acum' in col_lower:
+            col_avance = col
+
+    print(f"🔍 Columnas identificadas: ITEM={col_item}, DESC={col_descripcion}, AVANCE={col_avance}")
+
+    # Validar que se encontró la columna de avance
+    if col_avance is None:
+        raise ValueError(
+            f"❌ ARCHIVO INCORRECTO: Este archivo no contiene la columna de avances físicos.\n"
+            f"📋 Columnas encontradas: {columnas}\n"
+            f"✅ Se esperaba una columna que contenga 'AVANCE' y 'ACUMULADO' en el nombre.\n"
+            f"💡 Asegúrese de subir un archivo de AVANCES FÍSICOS, no un cronograma valorizado."
+        )
+
+    # Procesar filas
+    for idx, row in df.iterrows():
+        try:
+            if pd.notna(row[col_item]) and pd.notna(row[col_avance]):
+                item_code = str(row[col_item]).strip()
+                avance_val = float(row[col_avance]) if row[col_avance] != 0 else 0.0
+
+                # Solo incluir códigos que parezcan partidas (tienen números)
+                if any(c.isdigit() for c in item_code):
+                    # NORMALIZACIÓN MATEMÁTICA CRÍTICA: 1 -> 01, 2.01 -> 02.01, 1.1 -> 01.10
+                    codigo_normalizado = normalizar_codigo_matematico(item_code)
+
+                    partida_data = {
+                        'codigo_partida': codigo_normalizado,
+                        'descripcion': str(row[col_descripcion]).strip() if pd.notna(row[col_descripcion]) else '',
+                        'porcentaje_avance': avance_val
+                    }
+                    partidas_avances.append(partida_data)
+                    print(f"✅ Partida: {item_code} → {codigo_normalizado} = {avance_val:.1f}%")
+
+        except Exception as e:
+            print(f"⚠️ Error procesando fila {idx}: {e}")
+            continue
+
+    print(f"📈 Total partidas extraídas: {len(partidas_avances)}")
+    return partidas_avances
+
 def extraer_partidas_del_excel(content: bytes) -> List[dict]:
     """
     Extrae partidas y avances del archivo Excel.
@@ -103,57 +204,30 @@ def extraer_partidas_del_excel(content: bytes) -> List[dict]:
 
         partidas_avances = []
 
-        # Buscar columnas relevantes (flexibilidad en nombres)
-        col_item = None
-        col_descripcion = None
-        col_avance = None
+        # Detectar tipo de archivo: cronograma valorizado vs avances físicos
+        es_cronograma_valorizado = any(col in columnas for col in ['codigo', 'partida', 'metrado', 'pu', 'parcial'])
+        es_avances_fisicos = any('avance' in str(col).lower() and 'acum' in str(col).lower() for col in columnas)
 
-        for col in columnas:
-            col_lower = str(col).lower()
-            if 'item' in col_lower or 'codigo' in col_lower:
-                col_item = col
-            elif 'descripcion' in col_lower:
-                col_descripcion = col
-            elif 'avance' in col_lower and 'acum' in col_lower:
-                col_avance = col
+        print(f"🔍 Tipo de archivo detectado:")
+        print(f"  📊 Cronograma valorizado: {es_cronograma_valorizado}")
+        print(f"  📈 Avances físicos: {es_avances_fisicos}")
 
-        print(f"🔍 Columnas identificadas: ITEM={col_item}, DESC={col_descripcion}, AVANCE={col_avance}")
-
-        # Validar que se encontró la columna de avance
-        if col_avance is None:
+        if es_cronograma_valorizado:
+            # Procesar como cronograma valorizado
+            return procesar_cronograma_valorizado(df)
+        elif es_avances_fisicos:
+            # Procesar como avances físicos (lógica original)
+            return procesar_avances_fisicos(df, columnas)
+        else:
             raise ValueError(
-                f"❌ ARCHIVO INCORRECTO: Este archivo no contiene la columna de avances físicos.\n"
+                f"❌ TIPO DE ARCHIVO NO RECONOCIDO.\n"
                 f"📋 Columnas encontradas: {columnas}\n"
-                f"✅ Se esperaba una columna que contenga 'AVANCE' y 'ACUMULADO' en el nombre.\n"
-                f"💡 Asegúrese de subir un archivo de AVANCES FÍSICOS, no un cronograma valorizado."
+                f"✅ Se esperaba:\n"
+                f"  - Cronograma valorizado: codigo, partida, metrado, pu, parcial\n"
+                f"  - Avances físicos: columna que contenga 'AVANCE' y 'ACUMULADO'\n"
+                f"💡 Verifique que está subiendo el archivo correcto."
             )
 
-        # Procesar filas
-        for idx, row in df.iterrows():
-            try:
-                if pd.notna(row[col_item]) and pd.notna(row[col_avance]):
-                    item_code = str(row[col_item]).strip()
-                    avance_val = float(row[col_avance]) if row[col_avance] != 0 else 0.0
-
-                    # Solo incluir códigos que parezcan partidas (tienen números)
-                    if any(c.isdigit() for c in item_code):
-                        # NORMALIZACIÓN MATEMÁTICA CRÍTICA: 1 -> 01, 2.01 -> 02.01, 1.1 -> 01.10
-                        codigo_normalizado = normalizar_codigo_matematico(item_code)
-
-                        partida_data = {
-                            'codigo_partida': codigo_normalizado,
-                            'descripcion': str(row[col_descripcion]).strip() if pd.notna(row[col_descripcion]) else '',
-                            'porcentaje_avance': avance_val
-                        }
-                        partidas_avances.append(partida_data)
-                        print(f"✅ Partida: {item_code} → {codigo_normalizado} = {avance_val:.1f}%")
-
-            except Exception as e:
-                print(f"⚠️ Error procesando fila {idx}: {e}")
-                continue
-
-        print(f"📈 Total partidas extraídas: {len(partidas_avances)}")
-        return partidas_avances
 
     finally:
         # Limpiar archivo temporal

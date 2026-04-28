@@ -58,11 +58,6 @@ const App: React.FC = () => {
           <Route path="/comisarias/criticas" element={<div className="p-6 text-gray-800">Comisarías en Riesgo (Próximamente)</div>} />
           <Route path="/comisarias/mapa" element={<MapaNacional />} />
 
-          {/* Contratos Routes */}
-          <Route path="/contratos/activos" element={<div className="p-6 text-gray-800">Contratos Activos (Próximamente)</div>} />
-          <Route path="/contratos/vencidos" element={<div className="p-6 text-gray-800">Contratos Vencidos (Próximamente)</div>} />
-          <Route path="/contratos/equipamiento" element={<div className="p-6 text-gray-800">Contratos de Equipamiento (Próximamente)</div>} />
-          <Route path="/contratos/mantenimiento" element={<div className="p-6 text-gray-800">Contratos de Mantenimiento (Próximamente)</div>} />
 
           {/* Avances Routes */}
           <Route path="/avances/dashboard" element={<div className="p-6 text-gray-800">Dashboard Crítico (Próximamente)</div>} />

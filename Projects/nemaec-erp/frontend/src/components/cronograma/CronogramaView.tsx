@@ -42,6 +42,93 @@ export const CronogramaView: React.FC<CronogramaViewProps> = ({
 
   const updateFechasMutation = useUpdatePartidaFechas();
 
+  // Función para generar partidas padre que faltan
+  const generateMissingParents = (partidas: any[]) => {
+    const existingCodes = new Set(partidas.map(p => p.codigo_partida));
+    const missingParents: any[] = [];
+
+    // Función helper para crear una partida padre virtual
+    const createVirtualParent = (parentCode: string, nivel: number, samplePartida: any) => {
+      const parts = parentCode.split('.');
+      return {
+        codigo_interno: parentCode,
+        comisaria_id: samplePartida.comisaria_id,
+        codigo_partida: parentCode,
+        descripcion: `Agrupación ${parentCode}`,
+        unidad: '',
+        metrado: 0,
+        precio_unitario: 0,
+        precio_total: 0,
+        fecha_inicio: null,
+        fecha_fin: null,
+        nivel_jerarquia: nivel,
+        partida_padre: nivel > 1 ? parts.slice(0, nivel - 1).join('.') : null,
+        id: `virtual_${parentCode}`,
+        cronograma_id: samplePartida.cronograma_id,
+        created_at: samplePartida.created_at
+      };
+    };
+
+    partidas.forEach(partida => {
+      const parts = partida.codigo_partida.split('.');
+
+      // Generar todos los códigos padre posibles desde nivel 1 hasta el nivel actual
+      for (let i = 1; i < parts.length; i++) {
+        const parentCode = parts.slice(0, i).join('.');
+
+        if (!existingCodes.has(parentCode)) {
+          const virtualParent = createVirtualParent(parentCode, i, partida);
+          missingParents.push(virtualParent);
+          existingCodes.add(parentCode);
+        }
+      }
+    });
+
+    // Combinar y ordenar por código de partida
+    const allPartidas = [...missingParents, ...partidas];
+    return allPartidas.sort((a, b) => {
+      // Ordenamiento natural que respeta la jerarquía
+      const aParts = a.codigo_partida.split('.').map(Number);
+      const bParts = b.codigo_partida.split('.').map(Number);
+
+      for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+        const aVal = aParts[i] || 0;
+        const bVal = bParts[i] || 0;
+        if (aVal !== bVal) return aVal - bVal;
+      }
+      return 0;
+    });
+  };
+
+  // Auto-expandir partidas de nivel 1 y 2 cuando se carga el cronograma
+  React.useEffect(() => {
+    console.log('📊 DEBUG CronogramaView useEffect:', {
+      hasPartidas: !!cronograma?.partidas,
+      partidasLength: cronograma?.partidas?.length || 0,
+      expandedItemsSize: expandedItems.size,
+      firstPartida: cronograma?.partidas?.[0],
+      allNivelesJerarquia: cronograma?.partidas?.map(p => p.nivel_jerarquia) || []
+    });
+
+    if (cronograma?.partidas && cronograma.partidas.length > 0 && expandedItems.size === 0) {
+      const autoExpandItems = new Set<string>();
+
+      // Generar partidas padre y expandir automáticamente
+      const partidasCompletas = generateMissingParents(cronograma.partidas);
+
+      partidasCompletas.forEach(partida => {
+        // Expandir solo partidas de nivel 1 automáticamente
+        if (partida.nivel_jerarquia === 1) {
+          autoExpandItems.add(partida.codigo_partida);
+        }
+      });
+
+      console.log('🔓 Auto-expandiendo partidas en CronogramaView:', autoExpandItems);
+      console.log('📊 Total partidas a expandir:', autoExpandItems.size);
+      setExpandedItems(autoExpandItems);
+    }
+  }, [cronograma]);
+
   const handleExport = () => {
     // Fila 1: encabezados (el backend los ignora, empieza a leer desde fila 2)
     const headers = ['N°', 'COD_INTERNO', 'REFERENCIA', 'COD_PARTIDA', 'DESCRIPCION', 'REF2', 'METRADO', 'PRECIO_UNIT', 'PRECIO_TOTAL', 'UNIDAD', 'FECHA_INICIO', 'FECHA_FIN'];
@@ -151,22 +238,32 @@ export const CronogramaView: React.FC<CronogramaViewProps> = ({
 
   // Función para alternar expansión de una partida
   const toggleExpansion = (codigoPartida: string) => {
+    console.log('🔄 Toggle expansion for:', codigoPartida);
     setExpandedItems(prev => {
       const newSet = new Set(prev);
       if (newSet.has(codigoPartida)) {
         newSet.delete(codigoPartida);
+        console.log('➖ Collapsed:', codigoPartida);
       } else {
         newSet.add(codigoPartida);
+        console.log('➕ Expanded:', codigoPartida);
       }
+      console.log('🗂️ Current expanded items:', Array.from(newSet));
       return newSet;
     });
   };
 
   // Función para expandir todo
   const expandAll = () => {
-    const allParentCodes = new Set(
-      cronograma?.partidas?.filter(p => p.nivel_jerarquia <= 2).map(p => p.codigo_partida) || []
-    );
+    const allParentCodes = new Set<string>();
+
+    partidasCompletas.forEach(partida => {
+      // Expandir cualquier partida que tenga hijos
+      if (hasChildren(partida.codigo_partida, partidasCompletas)) {
+        allParentCodes.add(partida.codigo_partida);
+      }
+    });
+
     setExpandedItems(allParentCodes);
   };
 
@@ -220,23 +317,27 @@ export const CronogramaView: React.FC<CronogramaViewProps> = ({
     // Nivel 1 siempre visible
     if (partida.nivel_jerarquia === 1) return true;
 
-    // Para otros niveles, verificar si algún ancestro está expandido
+    // Para niveles 2 y superiores, verificar si el padre directo está expandido
     const codigoParts = partida.codigo_partida.split('.');
-    for (let i = 1; i < codigoParts.length; i++) {
-      const ancestorCode = codigoParts.slice(0, i).join('.');
-      if (!expandedItems.has(ancestorCode)) {
-        return false;
-      }
-    }
-    return true;
+    const parentCode = codigoParts.slice(0, -1).join('.');
+
+    // Si no hay padre, es visible (para casos especiales)
+    if (!parentCode) return true;
+
+    // Solo visible si el padre directo está expandido
+    return expandedItems.has(parentCode);
   };
 
-  // Función para verificar si una partida tiene hijos
+  // Función para verificar si una partida tiene hijos directos (solo el siguiente nivel)
   const hasChildren = (codigoPartida: string, todasPartidas: any[]): boolean => {
-    return todasPartidas.some(p =>
-      p.codigo_partida.startsWith(codigoPartida + '.') &&
-      p.codigo_partida.split('.').length === codigoPartida.split('.').length + 1
-    );
+    const nivelActual = codigoPartida.split('.').length;
+    const nivelHijo = nivelActual + 1;
+
+    return todasPartidas.some(p => {
+      const nivelPartida = p.codigo_partida.split('.').length;
+      return p.codigo_partida.startsWith(codigoPartida + '.') &&
+             nivelPartida === nivelHijo;
+    });
   };
 
   // Precio efectivo de una partida hoja: usa precio_total si > 0, sino metrado × precio_unitario
@@ -274,23 +375,45 @@ export const CronogramaView: React.FC<CronogramaViewProps> = ({
     };
   };
 
+  // Generar partidas completas con padres virtuales
+  const partidasCompletas = React.useMemo(() => {
+    if (!cronograma?.partidas) return [];
+
+    const result = generateMissingParents(cronograma.partidas);
+
+    console.log('🔧 DEBUG generateMissingParents:', {
+      originalPartidas: cronograma.partidas.length,
+      generatedPartidas: result.length,
+      virtualParents: result.filter(p => p.id?.toString().startsWith('virtual_')).length,
+      sampleVirtualParents: result.filter(p => p.id?.toString().startsWith('virtual_')).slice(0, 5).map(p => ({
+        codigo: p.codigo_partida,
+        nivel: p.nivel_jerarquia,
+        descripcion: p.descripcion
+      })),
+      allNiveles: [...new Set(result.map(p => p.nivel_jerarquia))].sort()
+    });
+
+    return result;
+  }, [cronograma?.partidas]);
+
   // Enriquecer partidas con totales y fechas calculados
-  const enrichedPartidas = cronograma?.partidas?.map(partida => {
-    const tieneHijos = cronograma.partidas.some((p: any) =>
-      p.codigo_partida.startsWith(partida.codigo_partida + '.')
+  const enrichedPartidas = partidasCompletas.map(partida => {
+    const tieneHijos = partidasCompletas.some((p: any) =>
+      p.codigo_partida.startsWith(partida.codigo_partida + '.') &&
+      p.codigo_partida !== partida.codigo_partida
     );
     if (tieneHijos) {
       const fechas = (!partida.fecha_inicio || !partida.fecha_fin)
-        ? calcularFechasPadre(partida.codigo_partida, cronograma.partidas)
+        ? calcularFechasPadre(partida.codigo_partida, partidasCompletas)
         : {};
       return {
         ...partida,
-        precio_total: calcularTotalPadre(partida.codigo_partida, cronograma.partidas),
+        precio_total: calcularTotalPadre(partida.codigo_partida, partidasCompletas),
         ...fechas,
       };
     }
     return { ...partida, precio_total: getPrecioEfectivo(partida) };
-  }) || [];
+  });
 
   // Filtrar partidas por búsqueda y visibilidad
   const filteredPartidas = enrichedPartidas.filter(partida => {
@@ -302,6 +425,17 @@ export const CronogramaView: React.FC<CronogramaViewProps> = ({
     const isVisible = searchTerm ? true : isPartidaVisible(partida);
 
     return matchesSearch && isVisible;
+  });
+
+  // Debug del filtrado en CronogramaView
+  console.log('🔍 DEBUG CronogramaView Filtrado:', {
+    enrichedPartidasCount: enrichedPartidas.length,
+    filteredPartidasCount: filteredPartidas.length,
+    searchTerm,
+    expandedItemsSize: expandedItems.size,
+    expandedItems: Array.from(expandedItems),
+    sampleEnrichedPartida: enrichedPartidas[0],
+    sampleFilteredPartida: filteredPartidas[0]
   });
 
   // Paginación

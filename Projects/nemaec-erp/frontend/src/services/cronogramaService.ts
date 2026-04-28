@@ -97,8 +97,11 @@ export const cronogramaService = {
           // Detectar formato:
           // Formato A (nuevo): ITEM, DESCRIPCION, UND, CANT, PU, PARCIAL, FECHA INICIO, FECHA FIN
           // Formato B (viejo): __EMPTY_1, __EMPTY_3, __EMPTY_4, ...
+          // Formato C (tu archivo): comisaria, proveedor, codigo, partida, und, metrado, pu, parcial, inicio, fec_termino
           const isFormatoA = headers.some(h => h.toUpperCase() === 'ITEM') &&
                              headers.some(h => h.toUpperCase() === 'DESCRIPCION');
+          const isFormatoC = headers.some(h => h.toUpperCase() === 'CODIGO') &&
+                             headers.some(h => h.toUpperCase() === 'PARTIDA');
 
           // Normalizar código de partida igual que el backend
           const normalizarCodigo = (val: any): string => {
@@ -170,6 +173,24 @@ export const cronogramaService = {
               precioTotal    = key('PARCIAL');
               fechaInicioRaw = keyFmt('FECHA INICIO');
               fechaFinRaw    = keyFmt('FECHA FIN');
+            } else if (isFormatoC) {
+              // Formato C (tu archivo): comisaria, proveedor, codigo, partida, und, metrado, pu, parcial, inicio, fec_termino
+              const key = (name: string) => {
+                const found = Object.keys(rowRaw).find(k => k.trim().toUpperCase() === name.toUpperCase());
+                return found ? rowRaw[found] : undefined;
+              };
+              const keyFmt = (name: string) => {
+                const found = Object.keys(rowFmt).find(k => k.trim().toUpperCase() === name.toUpperCase());
+                return found ? rowFmt[found] : undefined;
+              };
+              codigoRaw      = key('CODIGO');
+              descripcion    = key('PARTIDA');
+              unidad         = key('UND');
+              metrado        = key('METRADO');
+              precioUnitario = key('PU');
+              precioTotal    = key('PARCIAL');
+              fechaInicioRaw = keyFmt('INICIO');
+              fechaFinRaw    = keyFmt('FEC_TERMINO');
             } else {
               // Formato viejo (Collique)
               codigoRaw      = rowRaw['__EMPTY_1'];
@@ -344,7 +365,7 @@ export const cronogramaService = {
   // Obtener cronograma por comisaría (devuelve el más reciente)
   async getCronogramaByComisaria(comisariaId: number): Promise<CronogramaValorizado | null> {
     try {
-      const response = await fetch(`/api/v1/cronogramas/comisaria/${comisariaId}`);
+      const response = await fetch(`/api/v1/cronogramas/comisaria/${comisariaId}/detalle`);
       if (response.status === 404) {
         return null;
       }

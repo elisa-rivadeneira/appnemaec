@@ -50,6 +50,7 @@ const MapaNacional: React.FC = () => {
       provincia: comisaria.ubicacion.provincia,
       departamento: comisaria.ubicacion.departamento,
       estado: comisaria.estado,
+      foto_url: comisaria.foto_url, // Agregar foto URL
       comisaria: comisaria // Referencia a la comisaría original
     }));
   }, [comisarias]);

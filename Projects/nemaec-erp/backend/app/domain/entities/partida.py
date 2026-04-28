@@ -107,6 +107,10 @@ class Partida:
     # Estado actual
     estado: EstadoPartida = EstadoPartida.NO_INICIADA
 
+    # Fechas de planificación
+    fecha_inicio: Optional[datetime] = None
+    fecha_termino: Optional[datetime] = None
+
     # Avances históricos
     avances: List[AvancePartida] = field(default_factory=list)
 

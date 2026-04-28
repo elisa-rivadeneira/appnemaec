@@ -170,7 +170,27 @@ export const cronogramaService = {
   async getCronogramaByComisaria(comisariaId: number): Promise<CronogramaValorizado | null> {
     console.log(`🔗 Consultando API: GET /cronogramas/comisaria/${comisariaId}/detalle`);
     try {
-      return await apiCall<CronogramaValorizado>(`/cronogramas/comisaria/${comisariaId}/detalle`);
+      const response = await apiCall<any>(`/cronogramas/comisaria/${comisariaId}/detalle`);
+
+      // Map backend response to frontend interface
+      const mappedResponse: CronogramaValorizado = {
+        id: response.id,
+        comisaria_id: response.comisaria_id,
+        nombre_cronograma: response.nombre || 'Cronograma',
+        archivo_original: response.descripcion || 'archivo.xlsx',
+        fecha_importacion: response.created_at,
+        total_presupuesto: response.partidas?.reduce((sum: number, p: any) => sum + (p.precio_total || 0), 0) || 0,
+        total_partidas: response.partidas?.length || 0,
+        fecha_inicio_obra: response.fecha_inicio || '',
+        fecha_fin_obra: response.fecha_fin || '',
+        estado: response.estado as 'activo' | 'archivado',
+        partidas: response.partidas || [],
+        created_at: response.created_at,
+        updated_at: response.updated_at
+      };
+
+      console.log(`✅ Cronograma mapeado: ${mappedResponse.total_partidas} partidas`);
+      return mappedResponse;
     } catch (error: any) {
       if (error.message.includes('404')) {
         return null;

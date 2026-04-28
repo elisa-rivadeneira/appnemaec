@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from pydantic import BaseModel
 import openpyxl
+import pandas as pd
 
 from app.core.database import get_db
 from app.infrastructure.database.models import CronogramaModel, PartidaModel
@@ -118,6 +119,8 @@ def get_partida_padre(codigo_partida: str) -> Optional[str]:
 
 def calcular_nivel_jerarquia(codigo_partida: str) -> int:
     """Calcular nivel de jerarquía basado en el código de partida"""
+    if not codigo_partida or codigo_partida.strip() == "":
+        return 1  # Nivel por defecto si el código está vacío
     return len(codigo_partida.split('.'))
 
 # Endpoints
@@ -223,14 +226,39 @@ async def import_cronograma_from_excel(
         raise HTTPException(status_code=400, detail="Solo se aceptan archivos Excel (.xlsx, .xls)")
 
     try:
-        # Cargar dos veces:
-        # - data_only=True  → valores cacheados (precios calculados, fechas directas)
-        # - data_only=False → fórmulas como texto (para calcular fecha_fin cuando no hay cache)
         contents = await file.read()
-        workbook = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
-        workbook_fmls = openpyxl.load_workbook(io.BytesIO(contents), data_only=False)
-        sheet = workbook.active
-        sheet_fmls = workbook_fmls.active
+
+        # Para archivos .xls usar pandas, para .xlsx usar openpyxl
+        if file.filename.endswith('.xls'):
+            # Usar pandas para archivos .xls
+            df = pd.read_excel(io.BytesIO(contents), engine='xlrd')
+
+            # Crear un objeto adaptador que simule el comportamiento de openpyxl.sheet
+            class PandasSheetAdapter:
+                def __init__(self, df):
+                    self.df = df
+
+                def iter_rows(self, min_row=1, max_row=None, values_only=True):
+                    if min_row == 1 and max_row == 1:
+                        # Encabezados
+                        yield list(self.df.columns)
+                    else:
+                        # Datos
+                        start_row = min_row - 2 if min_row > 1 else 0  # min_row=2 -> index 0
+                        end_row = max_row - 2 if max_row else len(self.df)
+                        for i in range(start_row, min(end_row, len(self.df))):
+                            yield list(self.df.iloc[i])
+
+            sheet = PandasSheetAdapter(df)
+            sheet_fmls = sheet  # Para XLS no necesitamos formulas separadas
+        else:
+            # Cargar dos veces para .xlsx:
+            # - data_only=True  → valores cacheados (precios calculados, fechas directas)
+            # - data_only=False → fórmulas como texto (para calcular fecha_fin cuando no hay cache)
+            workbook = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
+            workbook_fmls = openpyxl.load_workbook(io.BytesIO(contents), data_only=False)
+            sheet = workbook.active
+            sheet_fmls = workbook_fmls.active
 
         # Crear cronograma
         nuevo_cronograma = CronogramaModel(
@@ -254,7 +282,10 @@ async def import_cronograma_from_excel(
 
         # Formato A: ITEM, DESCRIPCION, UND, CANT, PU, PARCIAL, FECHA INICIO, FECHA FIN
         # Formato B (original): N°, COD_INTERNO, REF, COD_PARTIDA, DESCRIPCION, REF2, METRADO, P.UNIT, P.TOTAL, UNIDAD, FECHA_INICIO, FECHA_FIN
-        if header_row and header_row[0] in ("ITEM", "N°", "NRO", "NUM", "#"):
+        # Formato C (nuevo): comisaria, proveedor, codigo, partida, und, metrado, pu, parcial, inicio, fec_termino
+        if "CODIGO" in header_row and "PARTIDA" in header_row:
+            fmt = "C"  # Tu formato nuevo
+        elif header_row and header_row[0] in ("ITEM", "N°", "NRO", "NUM", "#"):
             if "DESCRIPCION" in header_row[:3]:
                 fmt = "A"  # ITEM(0), DESCRIPCION(1), UND(2), CANT(3), PU(4), PARCIAL(5), F_INI(6), F_FIN(7)
             else:
@@ -276,14 +307,19 @@ async def import_cronograma_from_excel(
               - str "1.01.01"  -> "01.01.01"  (sin cero inicial)
             """
             import math
+            import pandas as pd
 
             if val is None:
+                return ""
+
+            # Verificar si es NaN de pandas
+            if pd.isna(val):
                 return ""
 
             # Cadena de texto (e.g. "01.01.01 ", "01.02.01", "2.1")
             if isinstance(val, str):
                 s = val.strip()
-                if s in ("nan", "None", ""):
+                if s in ("nan", "None", "", "NaT"):
                     return ""
                 partes = s.split(".")
                 result = []
@@ -329,20 +365,35 @@ async def import_cronograma_from_excel(
             return normalizar_codigo(str(val))
 
         def parse_fecha(val):
-            if not val:
+            import pandas as pd
+            if not val or pd.isna(val):
                 return None
             if isinstance(val, datetime):
                 return val
+            # Manejar Timestamp de pandas
+            if hasattr(val, 'to_pydatetime'):
+                try:
+                    return val.to_pydatetime()
+                except:
+                    return None
             try:
-                return datetime.strptime(str(val)[:10], "%Y-%m-%d")
+                val_str = str(val)
+                if val_str in ('NaT', 'nan', 'None', ''):
+                    return None
+                return datetime.strptime(val_str[:10], "%Y-%m-%d")
             except:
                 return None
 
         def parse_float(val):
-            if val is None:
+            import pandas as pd
+            if val is None or pd.isna(val):
                 return 0.0
             try:
-                return float(str(val).replace(",", "."))
+                # Convertir a string y reemplazar comas por puntos
+                str_val = str(val).strip()
+                if str_val in ("", "nan", "NaN", "NaT"):
+                    return 0.0
+                return float(str_val.replace(",", "."))
             except:
                 return 0.0
 
@@ -401,6 +452,23 @@ async def import_cronograma_from_excel(
                     if fecha_fin is None and len(fml_row) > 7:
                         fecha_fin = parse_fecha_formula(fml_row[7], fecha_inicio)
                     codigo_interno  = codigo_partida
+                elif fmt == "C":
+                    # Formato C: comisaria(0), proveedor(1), codigo(2), partida(3), und(4), metrado(5), pu(6), parcial(7), inicio(9), fec_termino(10)
+                    codigo_partida  = normalizar_codigo(row[2])  # columna C (índice 2)
+                    descripcion     = str(row[3]).strip() if row[3] else ""  # columna D (índice 3)
+                    unidad          = str(row[4]).strip() if row[4] else "UND"  # columna E (índice 4)
+                    metrado         = parse_float(row[5])  # columna F (índice 5)
+                    precio_unitario = parse_float(row[6])  # columna G (índice 6)
+                    precio_total    = parse_float(row[7])  # columna H (índice 7)
+                    # Fallback: calcular desde metrado × PU si PARCIAL vino vacío/0
+                    if precio_total == 0.0 and metrado > 0 and precio_unitario > 0:
+                        precio_total = round(metrado * precio_unitario, 2)
+                    fecha_inicio    = parse_fecha(row[9] if len(row) > 9 else None)  # columna J (índice 9)
+                    fecha_fin       = parse_fecha(row[10] if len(row) > 10 else None)  # columna K (índice 10)
+                    # Fallback: si fecha_fin no está cacheada, calcular desde fórmula
+                    if fecha_fin is None and len(fml_row) > 10:
+                        fecha_fin = parse_fecha_formula(fml_row[10], fecha_inicio)
+                    codigo_interno  = codigo_partida
                 else:
                     # Formato original: índices 1,3,4,6,7,8,9,10,11
                     codigo_interno  = str(row[1]).strip() if row[1] else f"AUTO_{total_rows}"
@@ -415,27 +483,38 @@ async def import_cronograma_from_excel(
                     if fecha_fin is None and len(fml_row) > 11:
                         fecha_fin = parse_fecha_formula(fml_row[11], fecha_inicio)
 
-                if codigo_partida and descripcion:
-                    nueva_partida = PartidaModel(
-                        cronograma_id=cronograma_id,
-                        codigo_interno=codigo_interno,
-                        comisaria_id=comisaria_id,
-                        codigo_partida=codigo_partida,
-                        descripcion=descripcion,
-                        unidad=unidad,
-                        metrado=metrado,
-                        precio_unitario=precio_unitario,
-                        precio_total=precio_total,
-                        fecha_inicio=fecha_inicio,
-                        fecha_fin=fecha_fin,
-                        nivel_jerarquia=calcular_nivel_jerarquia(codigo_partida),
-                        partida_padre=get_partida_padre(codigo_partida),
-                        created_at=datetime.now()
-                    )
-                    db.add(nueva_partida)
-                    valid_partidas += 1
-                else:
+                # Validaciones más detalladas
+                if not codigo_partida or codigo_partida.strip() == "":
+                    print(f"⚠️ Fila {total_rows}: Código de partida vacío o inválido: '{row[2] if fmt == 'C' else row[0] if fmt == 'A' else row[3]}'")
                     invalid_rows += 1
+                    continue
+
+                if not descripcion or descripcion.strip() == "":
+                    print(f"⚠️ Fila {total_rows}: Descripción vacía: código='{codigo_partida}'")
+                    invalid_rows += 1
+                    continue
+
+                nueva_partida = PartidaModel(
+                    cronograma_id=cronograma_id,
+                    codigo_interno=codigo_interno,
+                    comisaria_id=comisaria_id,
+                    codigo_partida=codigo_partida,
+                    descripcion=descripcion,
+                    unidad=unidad,
+                    metrado=metrado,
+                    precio_unitario=precio_unitario,
+                    precio_total=precio_total,
+                    fecha_inicio=fecha_inicio,
+                    fecha_fin=fecha_fin,
+                    nivel_jerarquia=calcular_nivel_jerarquia(codigo_partida),
+                    partida_padre=get_partida_padre(codigo_partida),
+                    created_at=datetime.now()
+                )
+                db.add(nueva_partida)
+                valid_partidas += 1
+
+                if total_rows <= 10:  # Mostrar detalles de las primeras 10 partidas
+                    print(f"✅ Fila {total_rows}: {codigo_partida} - {descripcion[:50]}...")
 
             except Exception as e:
                 print(f"Error procesando fila {total_rows}: {e}")
