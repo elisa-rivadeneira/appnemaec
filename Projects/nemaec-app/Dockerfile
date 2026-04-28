@@ -10,7 +10,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Instalar todas las dependencias (incluyendo devDependencies para build)
-RUN npm ci
+RUN npm install
 
 # Instalar Expo CLI globalmente
 RUN npm install -g @expo/cli
