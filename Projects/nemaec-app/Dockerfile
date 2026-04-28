@@ -7,7 +7,7 @@ RUN apk add --no-cache git
 WORKDIR /app
 
 # Copiar archivos de dependencias
-COPY package*.json ./
+COPY Projects/nemaec-app/package*.json ./
 
 # Instalar todas las dependencias (incluyendo devDependencies para build)
 RUN npm install
@@ -16,7 +16,7 @@ RUN npm install
 RUN npm install -g @expo/cli
 
 # Copiar el resto del código
-COPY . .
+COPY Projects/nemaec-app/ .
 
 # Exponer puerto para desarrollo web
 EXPOSE 8081
